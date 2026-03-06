@@ -7,6 +7,17 @@ import math
 # --- CONFIGURATION ---
 ROBOT_IP = "192.168.1.100"
 IS_FRIENDLY = False  # Default to locked
+CAMERA_IN_BASE_POSE = [0.35, -0.10, 0.55, 0.0, 3.14, 0.0]
+PRE_GRASP_OFFSET = [0.0, 0.0, -0.10, 0.0, 0.0, 0.0]
+SERVO_LOOKAHEAD_TIME = 0.1
+SERVO_GAIN = 300
+SERVO_FREQUENCY_HZ = 500.0
+GRASP_FORCE = 50
+GRIPPER_TIMEOUT_S = 3.0
+GRIPPER_POLL_INTERVAL_S = 0.02
+CONTACT_APPROACH_VECTOR = [0.0, 0.0, -0.02, 0.0, 0.0, 0.0]
+CONTACT_DIRECTION = [0.0, 0.0, -1.0, 0.0, 0.0, 0.0]
+CONTACT_ACCELERATION = 0.2
 
 
 def main():
@@ -43,7 +54,8 @@ def main():
         print("2. Measure Workspace (Record TCP Coordinates)")
         print("3. Execute DUMMY MOVEMENT (Safe Z-hop)")
         print("4. Execute Gripper Control")
-        print("5. Exit")
+        print("5. Execute vision-guided grasp")
+        print("6. Exit")
 
         choice = input("Select option: ")
 
@@ -72,6 +84,12 @@ def main():
             print("Gripper opened.")
 
         elif choice == '5':
+            if IS_FRIENDLY:
+                execute_vision_guided_grasp(c_inter, r_inter, gripper)
+            else:
+                print("⛔️ ACCESS DENIED. Toggle Auth first.")
+
+        elif choice == '6':
             c_inter.stopScript()
             gripper.disconnect()
             break
@@ -137,6 +155,77 @@ def execute_dummy_move(c_inter, r_inter):
 
     print(f"Moving from {start_pose[2]} to {target_pose[2]}")
     c_inter.moveL(target_pose, speed, accel)
+
+
+def parse_pose(user_input):
+    values = [float(v.strip()) for v in user_input.split(",")]
+    if len(values) != 6:
+        raise ValueError("Pose must include 6 comma-separated values: x,y,z,rx,ry,rz")
+    return values
+
+
+def camera_pose_to_base(c_inter, object_pose_camera):
+    return c_inter.poseTrans(CAMERA_IN_BASE_POSE, object_pose_camera)
+
+
+def compute_pre_grasp(c_inter, object_pose_base):
+    return c_inter.poseTrans(object_pose_base, PRE_GRASP_OFFSET)
+
+
+def run_servo_tracking(c_inter, target_pose_fn, duration_s=0.5):
+    dt = 1.0 / SERVO_FREQUENCY_HZ
+    cycles = max(1, int(duration_s / dt))
+
+    for _ in range(cycles):
+        t_start = c_inter.initPeriod()
+        target_pose = target_pose_fn()
+        c_inter.servoL(target_pose, 0.0, 0.0, dt, SERVO_LOOKAHEAD_TIME, SERVO_GAIN)
+        c_inter.waitPeriod(t_start)
+
+    c_inter.servoStop()
+
+
+def move_until_contact(c_inter):
+    try:
+        c_inter.moveUntilContact(CONTACT_APPROACH_VECTOR, CONTACT_DIRECTION, CONTACT_ACCELERATION)
+    except TypeError:
+        c_inter.moveUntilContact(CONTACT_APPROACH_VECTOR)
+
+
+def close_gripper_with_feedback(gripper):
+    ok, _ = gripper.move(255, speed=255, force=GRASP_FORCE)
+    if not ok:
+        return False
+
+    t0 = time.time()
+    while time.time() - t0 < GRIPPER_TIMEOUT_S:
+        status = gripper.objectDetectionStatus()
+        if status != robotiq_gripper.RobotiqGripper.ObjectStatus.MOVING:
+            return status == robotiq_gripper.RobotiqGripper.STOPPED_INNER_OBJECT
+        time.sleep(GRIPPER_POLL_INTERVAL_S)
+    return False
+
+
+def execute_vision_guided_grasp(c_inter, r_inter, gripper):
+    if not check_robot_safety(r_inter):
+        print("Aborting move due to safety state.")
+        return
+
+    raw_pose = input("Enter object pose in camera frame (x,y,z,rx,ry,rz), or press Enter for demo pose: ").strip()
+    object_pose_camera = parse_pose(raw_pose) if raw_pose else [0.0, 0.0, 0.25, 0.0, 0.0, 0.0]
+
+    object_pose_base = camera_pose_to_base(c_inter, object_pose_camera)
+    pre_grasp_pose = compute_pre_grasp(c_inter, object_pose_base)
+    print(f"Object pose in base frame: {object_pose_base}")
+    print(f"Pre-grasp pose: {pre_grasp_pose}")
+
+    run_servo_tracking(c_inter, lambda: pre_grasp_pose, duration_s=0.5)
+    move_until_contact(c_inter)
+
+    if close_gripper_with_feedback(gripper):
+        print("Object successfully grasped!")
+    else:
+        print("Grasp failed or timed out.")
 
 # def execute_dummy_move(c_inter, r_inter):
 #     """
