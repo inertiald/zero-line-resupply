@@ -9,6 +9,15 @@ ROBOT_IP = "192.168.1.100"
 IS_FRIENDLY = False  # Default to locked
 CAMERA_IN_BASE_POSE = [0.35, -0.10, 0.55, 0.0, 3.14, 0.0]
 PRE_GRASP_OFFSET = [0.0, 0.0, -0.10, 0.0, 0.0, 0.0]
+SERVO_LOOKAHEAD_TIME = 0.1
+SERVO_GAIN = 300
+SERVO_FREQUENCY_HZ = 500.0
+GRASP_FORCE = 50
+GRIPPER_TIMEOUT_S = 3.0
+GRIPPER_POLL_INTERVAL_S = 0.02
+CONTACT_APPROACH_VECTOR = [0.0, 0.0, -0.02, 0.0, 0.0, 0.0]
+CONTACT_DIRECTION = [0.0, 0.0, -1.0, 0.0, 0.0, 0.0]
+CONTACT_ACCELERATION = 0.2
 
 
 def main():
@@ -163,14 +172,14 @@ def compute_pre_grasp(c_inter, object_pose_base):
     return c_inter.poseTrans(object_pose_base, PRE_GRASP_OFFSET)
 
 
-def run_servo_tracking(c_inter, target_supplier, duration_s=0.5):
-    dt = 1.0 / 500.0
+def run_servo_tracking(c_inter, target_pose_fn, duration_s=0.5):
+    dt = 1.0 / SERVO_FREQUENCY_HZ
     cycles = max(1, int(duration_s / dt))
 
     for _ in range(cycles):
         t_start = c_inter.initPeriod()
-        target_pose = target_supplier()
-        c_inter.servoL(target_pose, 0.0, 0.0, dt, 0.1, 300)
+        target_pose = target_pose_fn()
+        c_inter.servoL(target_pose, 0.0, 0.0, dt, SERVO_LOOKAHEAD_TIME, SERVO_GAIN)
         c_inter.waitPeriod(t_start)
 
     c_inter.servoStop()
@@ -178,23 +187,22 @@ def run_servo_tracking(c_inter, target_supplier, duration_s=0.5):
 
 def move_until_contact(c_inter):
     try:
-        c_inter.moveUntilContact([0.0, 0.0, -0.02, 0.0, 0.0, 0.0], [0.0, 0.0, -1.0, 0.0, 0.0, 0.0], 0.2)
+        c_inter.moveUntilContact(CONTACT_APPROACH_VECTOR, CONTACT_DIRECTION, CONTACT_ACCELERATION)
     except TypeError:
-        c_inter.moveUntilContact([0.0, 0.0, -0.02, 0.0, 0.0, 0.0])
+        c_inter.moveUntilContact(CONTACT_APPROACH_VECTOR)
 
 
 def close_gripper_with_feedback(gripper):
-    ok, _ = gripper.move(255, speed=255, force=50)
+    ok, _ = gripper.move(255, speed=255, force=GRASP_FORCE)
     if not ok:
         return False
 
-    timeout_s = 3.0
     t0 = time.time()
-    while time.time() - t0 < timeout_s:
+    while time.time() - t0 < GRIPPER_TIMEOUT_S:
         status = gripper.objectDetectionStatus()
         if status != robotiq_gripper.RobotiqGripper.ObjectStatus.MOVING:
             return status == robotiq_gripper.RobotiqGripper.STOPPED_INNER_OBJECT
-        time.sleep(0.02)
+        time.sleep(GRIPPER_POLL_INTERVAL_S)
     return False
 
 
