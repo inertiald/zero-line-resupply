@@ -40,6 +40,8 @@ class RobotiqGripper:
         STOPPED_INNER_OBJECT = 2
         AT_DEST = 3
 
+    STOPPED_INNER_OBJECT = ObjectStatus.STOPPED_INNER_OBJECT
+
     def __init__(self):
         """Constructor."""
         self.socket = None
@@ -211,6 +213,10 @@ class RobotiqGripper:
     def is_closed(self):
         """Returns whether the current position is considered as being fully closed."""
         return self.get_current_position() >= self.get_closed_position()
+
+    def objectDetectionStatus(self) -> ObjectStatus:
+        """Returns the current object detection status."""
+        return RobotiqGripper.ObjectStatus(self._get_var(self.OBJ))
 
     def get_current_position(self) -> int:
         """Returns the current position as returned by the physical hardware."""
