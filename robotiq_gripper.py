@@ -289,3 +289,9 @@ class RobotiqGripper:
         final_pos = self._get_var(self.POS)
         final_obj = cur_obj
         return final_pos, RobotiqGripper.ObjectStatus(final_obj)
+
+    def object_detection_status(self) -> 'RobotiqGripper.ObjectStatus':
+        """Returns the current object detection status of the gripper.
+        :return: ObjectStatus indicating whether the gripper stopped on an object or is at destination.
+        """
+        return RobotiqGripper.ObjectStatus(self._get_var(self.OBJ))
