@@ -208,9 +208,9 @@ def compute_approach_pose(c_inter, r_inter):
 
     print("\n--- COORDINATE TRANSFORMATION (Camera → Robot) ---")
 
-    # In production: camera_to_robot is your extrinsic calibration matrix as a pose
-    # For demonstration, we use an identity-like transform (no rotation, no offset)
-    # Replace with your actual camera-to-robot calibration pose
+    # In production: camera_to_robot is your extrinsic calibration matrix as a pose.
+    # Here we use the current TCP pose as a placeholder for demonstration.
+    # Replace with your actual camera-to-robot calibration pose.
     camera_to_robot = r_inter.getActualTCPPose()
     print(f"Camera-to-Robot base pose: {camera_to_robot}")
 
@@ -223,8 +223,8 @@ def compute_approach_pose(c_inter, r_inter):
     object_pose_robot = c_inter.poseTrans(camera_to_robot, object_pose_camera)
     print(f"Object pose (robot frame):  {object_pose_robot}")
 
-    # Compute a pre-grasp "approach" pose: offset 10cm back along the object's Z-axis
-    # This hovers the TCP above the object before descending for the grasp
+    # Compute a pre-grasp "approach" pose: offset -10cm along the object's local Z-axis
+    # This positions the TCP before the object for a safe approach
     approach_offset = [0.0, 0.0, -0.10, 0.0, 0.0, 0.0]
     approach_pose = c_inter.poseTrans(object_pose_robot, approach_offset)
     print(f"Approach pose (10cm above): {approach_pose}")
@@ -318,8 +318,10 @@ def safe_grasp(c_inter, r_inter, gripper):
         print("✅ Object successfully grasped!")
     elif status == robotiq_gripper.RobotiqGripper.ObjectStatus.STOPPED_OUTER_OBJECT:
         print("⚠️ Object detected (outer grip). Check grasp quality.")
+    elif status == robotiq_gripper.RobotiqGripper.ObjectStatus.AT_DEST:
+        print("❌ Gripper closed fully without detecting an object.")
     else:
-        print("❌ No object detected. Grasp may have failed.")
+        print("❌ Grasp status unknown. Gripper may still be moving.")
 
     # Step 4: Retract to approach pose
     print("⬆️ Retracting to approach pose...")
