@@ -86,11 +86,23 @@ end
             # NEW: Clear faults and protective stops via Dashboard Client
             print("🔄 Sending Dashboard Commands to clear faults...")
             try:
-                # Closes the current popup and unlocks protective stop (Note: fails if < 5s since stop occurred)
+                # 1. Gracefully disconnect RTDE to free the input registers
+                c_inter.disconnect()
+                r_inter.disconnect()
+
+                # 2. Close popups and restart safety
                 dash_client.unlockProtectiveStop()
-                # Reboots the safety system (robot will be in Power Off state afterwards)
                 dash_client.restartSafety()
-                print("✅ Protective stop unlocked and safety restarted. Remember to power on the arm!")
+                print("⏳ Safety restarted. Waiting for controller to reboot...")
+
+                # 3. Give the UR controller time to boot back up
+                time.sleep(7)
+
+                # 4. Reconnect RTDE interfaces
+                r_inter.reconnect()
+                c_inter.reconnect()
+
+                print("✅ RTDE Reconnected. Remember to power on the arm!")
             except Exception as e:
                 print(f"⚠️ Dashboard command failed: {e}")
         elif choice == '6':
@@ -126,41 +138,84 @@ def measure_workspace(r_inter):
         print("-" * 30)
 
 
-def execute_dummy_move(c_inter, r_inter):
-    """
-    Performs a relative movement.
-    It reads where the robot is NOW, and moves 5cm UP, then back DOWN.
-    This prevents the robot from flying into a wall using absolute coordinates.
-    """
-    print("\n⚠️ WARNING: Robot is about to move.")
-    print("Keep hand near E-STOP.")
-    confirm = input("Type 'y' to confirm execution: ")
+def check_robot_safety(r_inter):
+    """Checks if the robot is in a state capable of movement."""
+    # 1 = Normal, 2 = Reduced, 3 = Protective Stop, 4 = Recovery, etc.
+    safety_mode = r_inter.getSafetyMode()
+    # 0 = Robot State Power Off, 3 = Idle, 5 = Running, 7 = Updating Firmware
+    robot_mode = r_inter.getRobotMode()
 
-    if confirm.lower() != 'y':
-        print("Aborted.")
+    print(f"Safety Mode: {safety_mode} | Robot Mode: {robot_mode}")
+
+    if safety_mode != 1:
+        print("⚠️ Robot is NOT in Normal mode. Check the Teach Pendant for popups.")
+        return False
+    if robot_mode != 7:  # 7 is usually 'Power On' for e-Series
+        print("⚠️ Robot motors may not be enabled.")
+        return False
+    return True
+
+
+def execute_dummy_move(c_inter, r_inter):
+    if not check_robot_safety(r_inter):
+        print("Aborting move due to safety state.")
         return
 
-    # 1. Get current position
     start_pose = r_inter.getActualTCPPose()
+    target_pose = start_pose[:]
+    axis = input("Axis x(0), y(1), or z(2)? Also rotate x(3), y(4), or z(5)")
+    direction = input("Positive(0) or negative(1)?")
+    if direction == '1':
+        target_pose[int(axis)] -= 0.05
+    else:
+        target_pose[int(axis)] += 0.05
+        # CORRECTED INDEX TO 2 (Z-axis)
+                                # NOTE NOTE NOTE: Y positive moves towards the base??
+    # Use slightly higher acceleration to break static friction,
+    # but keep speed low for safety.
+    speed = 0.1
+    accel = 1.2  # Standard UR default is often 1.2
 
-    # 2. Create a waypoint 5cm (0.05m) HIGHER in Z
-    # Pose format: [x, y, z, rx, ry, rz]
-    target_pose = start_pose[:]  # Copy list
-    target_pose[6] += 0.05  # Add 5cm to Z axis
-
-    speed = 0.1  # Low speed for safety (m/s)
-    accel = 0.5  # Low acceleration
-
-    print("🚀 Moving UP 5cm...")
-
-    # moveL = Linear move (straight line)
-    # asynchronous=False means Python waits for robot to finish
+    print(f"Moving from {start_pose[2]} to {target_pose[2]}")
     c_inter.moveL(target_pose, speed, accel)
-    time.sleep(1)
 
-    print("⬇️ Moving DOWN to start...")
-    c_inter.moveL(start_pose, speed, accel)
-    print("✅ Move complete.")
+# def execute_dummy_move(c_inter, r_inter):
+#     """
+#     Performs a relative movement.
+#     It reads where the robot is NOW, and moves 5cm UP, then back DOWN.
+#     This prevents the robot from flying into a wall using absolute coordinates.
+#     """
+#     print("\n⚠️ WARNING: Robot is about to move.")
+#     print("Keep hand near E-STOP.")
+#     confirm = input("Type 'y' to confirm execution: ")
+#
+#     if confirm.lower() != 'y':
+#         print("Aborted.")
+#         return
+#
+#     # 1. Get current position
+#     start_pose = r_inter.getActualTCPPose()
+#     print("Target pose: /n")
+#     print(start_pose)
+#     # 2. Create a waypoint 5cm (0.05m) HIGHER in Z
+#     # Pose format: [x, y, z, rx, ry, rz]
+#     target_pose = start_pose[:]  # Copy list
+#     target_pose[5] += 0.05  # Add 5cm to Z axis
+#
+#     speed = 0.1  # Low speed for safety (m/s)
+#     accel = 0.5  # Low acceleration
+#
+#     print("🚀 Moving UP 5cm...")
+#
+#     # moveL = Linear move (straight line)
+#     # asynchronous=False means Python waits for robot to finish
+#     x = c_inter.moveL(target_pose, speed, accel)
+#     print(x)
+#     time.sleep(1)
+#
+#     print("⬇️ Moving DOWN to start...")
+#     c_inter.moveL(start_pose, speed, accel)
+#     print("✅ Move complete.")
 
 
 if __name__ == "__main__":

@@ -103,43 +103,79 @@ def measure_workspace(r_inter):
         print(f"🤖 JOINTS (rads):      {joints}")
         print("-" * 30)
 
+def check_robot_safety(r_inter):
+    """Checks if the robot is in a state capable of movement."""
+    # 1 = Normal, 2 = Reduced, 3 = Protective Stop, 4 = Recovery, etc.
+    safety_mode = r_inter.getSafetyMode()
+    # 0 = Robot State Power Off, 3 = Idle, 5 = Running, 7 = Updating Firmware
+    robot_mode = r_inter.getRobotMode()
+
+    print(f"Safety Mode: {safety_mode} | Robot Mode: {robot_mode}")
+
+    if safety_mode != 1:
+        print("⚠️ Robot is NOT in Normal mode. Check the Teach Pendant for popups.")
+        return False
+    if robot_mode != 7: # 7 is usually 'Power On' for e-Series
+        print("⚠️ Robot motors may not be enabled.")
+        return False
+    return True
 
 def execute_dummy_move(c_inter, r_inter):
-    """
-    Performs a relative movement.
-    It reads where the robot is NOW, and moves 5cm UP, then back DOWN.
-    This prevents the robot from flying into a wall using absolute coordinates.
-    """
-    print("\n⚠️ WARNING: Robot is about to move.")
-    print("Keep hand near E-STOP.")
-    confirm = input("Type 'y' to confirm execution: ")
 
-    if confirm.lower() != 'y':
-        print("Aborted.")
+    if not check_robot_safety(r_inter):
+        print("Aborting move due to safety state.")
         return
 
-    # 1. Get current position
     start_pose = r_inter.getActualTCPPose()
-    # PRINT FOR DEBUGGING (WORLD SPACE POSITIONS, ROTIONXYZ)
+    target_pose = start_pose[:]
+    target_pose[2] += 0.05  # CORRECTED INDEX TO 2 (Z-axis)
 
-    # 2. Create a waypoint 5cm (0.05m) HIGHER in Z
-    # Pose format: [x, y, z, rx, ry, rz]
-    target_pose = start_pose[:]  # Copy list
-    target_pose[2] += 0.05  # Add 5cm to Z axis
+    # Use slightly higher acceleration to break static friction,
+    # but keep speed low for safety.
+    speed = 0.1
+    accel = 1.2  # Standard UR default is often 1.2
 
-    speed = 0.5  # Low speed for safety (m/s)
-    accel = 0.5  # Reduced acceleration for smoother short moves
+    print(f"Moving from {start_pose[2]} to {target_pose[2]}")
+    c_inter.moveL(target_pose, speed, accel)
 
-    print("🚀 Moving UP 5cm...")
-    # moveL expects arguments in the order: pose, speed, acceleration
-    c_inter.moveJ_IK(target_pose, speed, accel)
+# def execute_dummy_move(c_inter, r_inter):
+#     """
+#     Performs a relative movement.
+#     It reads where the robot is NOW, and moves 5cm UP, then back DOWN.
+#     This prevents the robot from flying into a wall using absolute coordinates.
+#     """
+#     print("\n⚠️ WARNING: Robot is about to move.")
+#     print("Keep hand near E-STOP.")
+#     confirm = input("Type 'y' to confirm execution: ")
+#
+#     if confirm.lower() != 'y':
+#         print("Aborted.")
+#         return
+#
+#     # 1. Get current position
+#     start_pose = r_inter.getActualTCPPose()
+#     # PRINT FOR DEBUGGING (WORLD SPACE POSITIONS, ROTIONXYZ)
+#
+#     # 2. Create a waypoint 5cm (0.05m) HIGHER in Z
+#     # Pose format: [x, y, z, rx, ry, rz]
+#     target_pose = start_pose[:]  # Copy list
+#     target_pose[2] += 0.05  # Add 5cm to Z axis
+#
+#     speed = 0.5  # Low speed for safety (m/s)
+#     accel = 0.5  # Reduced acceleration for smoother short moves
+#
+#     print("🚀 Moving UP 5cm...")
+#     # moveL expects arguments in the order: pose, speed, acceleration
+#     c_inter.moveJ_IK(target_pose, speed, accel)
+#
+#     time.sleep(1)
+#
+#     print("⬇️ Moving DOWN to start...")
+#     c_inter.moveL(start_pose, speed, accel)
+#
+#     print("✅ Move complete.")
 
-    time.sleep(1)
 
-    print("⬇️ Moving DOWN to start...")
-    c_inter.moveL(start_pose, speed, accel)
-
-    print("✅ Move complete.")
 
 
 if __name__ == "__main__":
