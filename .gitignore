@@ -1,0 +1,15 @@
+# Environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDEs
+.idea/
+.vscode/
+
+# Python specific
+__pycache__/
+*.py[cod]
+*.so
+.DS_Store
